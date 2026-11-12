@@ -1,90 +1,97 @@
 # Sentinela · Inspeção Visual de EPIs
 
-Aplicação web para identificação de Equipamentos de Proteção Individual (EPIs) em imagens, usando um modelo YOLOv8 treinado localmente (`best.pt`).
+Aplicação web para identificar Equipamentos de Proteção Individual (EPIs) em imagens, usando um modelo YOLOv8 treinado localmente (`best.pt`). Todo o processamento é local: nenhuma imagem sai da sua máquina.
 
-Dividida em dois serviços:
+Dois serviços:
 
-- **backend/** — API em FastAPI que carrega o modelo e devolve as detecções.
-- **frontend/** — Interface estática (HTML/CSS/JS puro) com upload, preview, laudo e histórico de sessão.
+- **backend/**: API FastAPI que carrega o modelo e devolve detecções, imagem anotada e conformidade.
+- **frontend/**: interface estática (HTML/CSS/JS puro) servida pelo nginx, que também faz proxy de `/api/` para o backend.
 
 ## Estrutura
 
 ```
 epi-identifier/
 ├── best.pt                 # modelo YOLOv8 treinado
+├── docker-compose.yml
 ├── backend/
+│   ├── Dockerfile
 │   ├── main.py             # FastAPI + Ultralytics
 │   └── requirements.txt
-├── frontend/
-│   ├── index.html
-│   ├── css/styles.css
-│   └── js/app.js
-├── start-backend.bat       # Windows
-├── start-frontend.bat      # Windows
-├── start-backend.sh        # Linux/macOS
-└── start-frontend.sh       # Linux/macOS
+└── frontend/
+    ├── Dockerfile
+    ├── nginx.conf
+    ├── index.html
+    ├── css/styles.css
+    └── js/app.js
 ```
 
-## Como executar (Windows)
+## Como executar (Docker)
 
-Abra dois terminais na raiz do projeto:
-
-**Terminal 1 — backend**
-```
-start-backend.bat
-```
-Na primeira execução, o script cria um ambiente virtual em `backend/.venv` e instala as dependências (pode levar alguns minutos). Em seguida sobe em <http://localhost:8000>.
-
-**Terminal 2 — frontend**
-```
-start-frontend.bat
-```
-Serve a interface em <http://localhost:5173>. Abra o endereço no navegador.
-
-## Como executar (Linux/macOS)
+Requer Docker Desktop com BuildKit (padrão nas versões atuais).
 
 ```
-chmod +x start-backend.sh start-frontend.sh
-./start-backend.sh      # terminal 1
-./start-frontend.sh     # terminal 2
+docker compose up --build
 ```
+
+- Interface: <http://localhost:8080>
+- API: <http://localhost:8000> (docs interativos em <http://localhost:8000/docs>)
+
+O frontend só sobe depois que o backend passa no healthcheck (`/api/health`). Na primeira execução o carregamento do modelo pode levar alguns minutos, e o healthcheck aguarda até 180 s antes de contar falhas.
+
+Para reconstruir só um serviço: `docker compose up --build frontend` (ou `backend`).
+
+### Sobre a imagem do backend
+
+- Usa PyTorch **somente CPU**, instalado num venv (`/opt/venv`) antes das demais dependências. Isso evita que o `pip` baixe o torch com CUDA (vários GB).
+- O cache do `pip` é mantido entre builds (BuildKit), e o bytecode é pré-compilado para acelerar o start.
+- Versões do torch fixadas em `torch==2.5.1` e `torchvision==0.20.1`. As demais dependências ainda usam `>=` em `backend/requirements.txt`.
+- Se mudar o frontend e a tela não atualizar, recarregue sem cache (Ctrl+Shift+R). O nginx revalida `css` e `js` a cada acesso.
+
+## Estados e cores
+
+O modelo detecta cada EPI tanto presente quanto ausente. As cores são fixas:
+
+| Cor | Estado | Origem |
+|---|---|---|
+| Azul | **Identificado** | classes presentes: `helmet`, `vest`, `gloves`, `goggles`, `boots` |
+| Vermelho | **Ausência** | classes `no-*`: `no-helmet`, `no-vest`, `no-gloves`, `no-goggles`, `no-boots` |
+| Cinza | **Indeterminado** | EPI do checklist que o modelo não classificou como presente nem ausente |
+
+Azul e vermelho aparecem nas caixas da imagem anotada. O cinza aparece só no checklist, porque não há caixa para o que não foi detectado. Se o mesmo EPI aparecer como presente e ausente, vale a detecção de maior confiança.
 
 ## API
 
-- `GET /api/health` — status e lista de classes carregadas.
-- `GET /api/classes` — classes do modelo com categoria mapeada para EPIs comuns.
-- `POST /api/analyze` — envia uma imagem (campo `file`) e recebe:
-  - detecções com `label`, `confidence`, `box`;
-  - imagem anotada em base64;
-  - resumo por classe;
-  - score de conformidade e checklist de EPIs essenciais.
-- Docs interativos em <http://localhost:8000/docs>.
+- `GET /api/health`: status e lista de classes carregadas.
+- `GET /api/classes`: classes do modelo, com `category` (item do checklist) e `state` (`present` ou `absent`).
+- `POST /api/analyze?confidence=0.35`: envia uma imagem (campo `file`, até 10 MB) e recebe:
+  - `detections`: `label`, `category`, `state`, `confidence`, `box`;
+  - `annotated_image`: JPEG em base64 com as caixas coloridas;
+  - `summary`: contagem por classe;
+  - `compliance`: `score`, `status`, `detected`, `missing`, `required` e `items` (estado de cada EPI: `present`, `absent` ou `unknown`);
+  - `processing_time_ms`, `average_confidence`, `image_size`.
 
-## Funcionalidades do frontend
+### Conformidade
 
-- Drag & drop, clique ou **Ctrl+V** (colar da área de transferência).
-- Slider de limiar de confiança (10% – 90%).
-- Imagem anotada com bounding boxes e porcentagem.
-- Score de conformidade em gauge animado.
-- Checklist de EPIs essenciais (capacete, óculos, luvas, máscara, bota, colete, protetor auricular).
-- Lista de detecções ordenada por confiança, com barras coloridas.
+Os EPIs verificados são: capacete, óculos, luvas, máscara, bota, colete e protetor auricular. O `score` é a porcentagem desses itens identificados como presentes. O `status` pode ser:
+
+- `conforme`: todos os itens presentes;
+- `parcial`: pelo menos um presente, mas não todos;
+- `nao_conforme`: nenhum presente, com alguma detecção;
+- `nenhum_epi`: nenhuma detecção.
+
+Para ajustar a lista, edite `REQUIRED_EPIS` em `backend/main.py`. Cada item tem sinônimos em português e inglês, usados para casar com o nome das classes do modelo. Prefixos `no-`, `sem-` e `without-` marcam ausência.
+
+## Frontend
+
+- Envio por arraste, clique ou **Ctrl+V**; análise com **Ctrl+Enter**; **Esc** limpa.
+- Slider de limiar de confiança (10% a 90%).
+- Painel "Resultado" com o mesmo tamanho do painel de envio: imagem anotada e, abaixo, status, pontuação, checklist e detecções.
 - Download da imagem anotada.
-- Histórico da sessão em `localStorage` (até 12 análises).
+- Histórico da sessão no `localStorage` (até 12 análises).
 - Tema claro/escuro.
-- Atalho **Ctrl+Enter** para disparar a análise.
-
-## Mapeamento de EPIs
-
-O backend tenta casar o nome de cada classe do modelo com uma das categorias abaixo (por sinônimos, PT/EN):
-
-```
-capacete · oculos · luvas · mascara · bota · colete · protetor_auricular
-```
-
-Edite `REQUIRED_EPIS` em `backend/main.py` para ajustar à sua lista.
 
 ## Observações
 
-- Nenhuma imagem sai da máquina — todo o processamento é local.
-- Se precisar expor o backend em outro host, ajuste `API_BASE` no topo de `frontend/js/app.js` ou defina `window.__API_BASE__` antes do script.
-- O backend permite CORS de qualquer origem (`*`) por padrão; restrinja em produção.
+- O backend permite CORS de qualquer origem (`ALLOWED_ORIGINS: "*"` no `docker-compose.yml`). Restrinja em produção.
+- Para expor o backend em outro host, ajuste `API_BASE` no topo de `frontend/js/app.js` ou defina `window.__API_BASE__` antes do script.
+- Manter o projeto fora de pastas sincronizadas pelo OneDrive deixa o build e o I/O do Docker mais rápidos.
