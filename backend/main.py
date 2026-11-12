@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import cv2
+import httpx
 import numpy as np
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -34,6 +35,12 @@ MAX_IMAGE_BYTES = 10 * 1024 * 1024   # 10 MB
 MAX_SIDE_PX = 1920                    # redimensiona se maior
 MAX_DETECTIONS = 100                  # limite de detecções por imagem
 JPEG_QUALITY = 88
+
+# Serviço de processamento de imagens (epi-computer-vision-genai, POST /process).
+# Vazio = desligado (a imagem original segue direto para o modelo).
+IMGPROC_URL = os.getenv("IMGPROC_URL", "").rstrip("/")
+IMGPROC_TECHNIQUE = os.getenv("IMGPROC_TECHNIQUE", "none")
+IMGPROC_TIMEOUT_S = float(os.getenv("IMGPROC_TIMEOUT_S", "30"))
 
 REQUIRED_EPIS = {
     "capacete":            ["capacete", "helmet", "hardhat", "hard-hat", "hard_hat"],
@@ -121,6 +128,41 @@ def classify_epi(label: str) -> tuple[str | None, str]:
             if normalize(alias) in norm or norm in normalize(alias):
                 return key, state
     return None, state
+
+
+async def preprocess_remote(raw: bytes) -> tuple[bytes, dict]:
+    """Envia a imagem ao serviço /process e devolve (bytes do PNG, metadados).
+
+    Em qualquer falha (serviço fora do ar, 4xx/5xx, timeout) registra aviso e
+    devolve a imagem original, para a análise não parar.
+    """
+    meta: dict = {"applied": False, "technique": None, "sharpness_hf_ratio": None}
+    if not IMGPROC_URL:
+        return raw, meta
+    try:
+        async with httpx.AsyncClient(timeout=IMGPROC_TIMEOUT_S) as client:
+            resp = await client.post(
+                f"{IMGPROC_URL}/process",
+                params={"technique": IMGPROC_TECHNIQUE},
+                files={"file": ("imagem", raw)},
+            )
+        if resp.status_code != 200:
+            logger.warning(
+                "imgproc retornou %d (%s); usando imagem original.",
+                resp.status_code, resp.text[:200],
+            )
+            return raw, meta
+    except httpx.HTTPError as exc:
+        logger.warning("imgproc indisponível (%s); usando imagem original.", exc)
+        return raw, meta
+
+    sharp = resp.headers.get("X-Sharpness-HF-Ratio")
+    meta = {
+        "applied": True,
+        "technique": resp.headers.get("X-Technique"),
+        "sharpness_hf_ratio": float(sharp) if sharp else None,
+    }
+    return resp.content, meta
 
 
 def resize_if_large(img: np.ndarray) -> np.ndarray:
@@ -223,6 +265,9 @@ async def analyze(
     if len(raw) > MAX_IMAGE_BYTES:
         raise HTTPException(status_code=413, detail="Imagem acima de 10 MB.")
 
+    # Pré-processamento via serviço externo (EXIF, PNG sem perdas, técnica opcional)
+    raw, preprocessing = await preprocess_remote(raw)
+
     # Decodificação
     try:
         pil_image = Image.open(io.BytesIO(raw)).convert("RGB")
@@ -316,6 +361,7 @@ async def analyze(
         "image_size": {"width": orig_w, "height": orig_h},
         "processing_time_ms": round(elapsed_ms, 2),
         "average_confidence": round(avg_conf, 4),
+        "preprocessing": preprocessing,
         "compliance": {
             "score": compliance_score,
             "status": status,

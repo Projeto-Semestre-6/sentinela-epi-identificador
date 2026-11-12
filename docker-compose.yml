@@ -14,6 +14,12 @@ services:
       # Ajuste para produção: defina as origens permitidas separadas por vírgula
       # Ex: ALLOWED_ORIGINS=https://sentinela.suaempresa.com
       ALLOWED_ORIGINS: "*"
+      # Serviço de processamento de imagens (epi-computer-vision-genai, porta 8001).
+      # Vazio desliga a integração. Falha no serviço = usa a imagem original.
+      IMGPROC_URL: "http://host.docker.internal:8001"
+      IMGPROC_TECHNIQUE: "none"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8000/api/health || exit 1"]
       interval: 15s
