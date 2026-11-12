@@ -1,0 +1,15 @@
+backend/.venv
+backend/install.log
+backend/__pycache__
+**/__pycache__
+**/*.pyc
+**/*.pyo
+.git
+.gitignore
+*.md
+*.bat
+*.sh
+*.log
+.env
+.env.*
+frontend/assets

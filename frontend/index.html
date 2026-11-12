@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Sentinela — Inspeção visual de EPIs por visão computacional. Identifique equipamentos de proteção individual em segundos, sem upload para a nuvem." />
+    <title>Sentinela · Inspeção Visual de EPIs</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet"
+    />
+    <link rel="stylesheet" href="css/styles.css?v=4" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%23121417'/%3E%3Cpath d='M30 60 L50 25 L70 60 Z' fill='%23ff6b35'/%3E%3Ccircle cx='50' cy='70' r='6' fill='%23ff6b35'/%3E%3C/svg%3E" />
+</head>
+<body>
+    <div class="grid-backdrop" aria-hidden="true"></div>
+
+    <header class="topbar">
+        <div class="brand">
+            <div class="brand-mark" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="M4 14 L12 4 L20 14" stroke-linecap="round" stroke-linejoin="round"/>
+                    <circle cx="12" cy="17" r="2.2" fill="currentColor" stroke="none"/>
+                </svg>
+            </div>
+            <div class="brand-text">
+                <strong>Sentinela</strong>
+                <span>Inspeção visual de EPIs</span>
+            </div>
+        </div>
+        <nav class="topbar-nav">
+            <a href="#analise">Análise</a>
+            <a href="#historico">Histórico</a>
+            <a href="#sobre">Sobre</a>
+            <button id="themeToggle" class="icon-btn" title="Alternar tema" aria-label="Alternar tema">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                </svg>
+            </button>
+        </nav>
+    </header>
+
+    <main>
+        <section class="hero" id="analise">
+            <div class="hero-text">
+                <span class="eyebrow">Visão computacional · Segurança do trabalho</span>
+                <h1>Inspeção de EPIs em segundos, com registro verificável.</h1>
+                <p>Envie uma imagem do ambiente de trabalho e receba um laudo visual com equipamentos identificados, nível de confiança e checklist de conformidade.</p>
+                <div class="hero-badges">
+                    <span class="badge"><span class="dot"></span> Modelo local YOLOv8</span>
+                    <span class="badge">Sem upload para a nuvem</span>
+                    <span class="badge">Resposta &lt; 2s</span>
+                </div>
+            </div>
+            <aside class="hero-stats">
+                <div class="stat">
+                    <span class="stat-label">Análises nesta sessão</span>
+                    <strong id="statCount">0</strong>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Último tempo de inferência</span>
+                    <strong id="statTime">—</strong>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Classes suportadas</span>
+                    <strong id="statClasses">—</strong>
+                </div>
+            </aside>
+        </section>
+
+        <section class="workbench">
+            <div class="panel panel-upload">
+                <header class="panel-header">
+                    <div>
+                        <h2>1. Envie a imagem</h2>
+                        <p>Arraste, cole (Ctrl+V) ou selecione uma foto.</p>
+                    </div>
+                    <div class="confidence-control">
+                        <label for="confRange">Limiar</label>
+                        <input type="range" id="confRange" min="10" max="90" value="35" />
+                        <output id="confValue">35%</output>
+                    </div>
+                </header>
+
+                <div class="dropzone frame" id="dropzone" tabindex="0" role="button" aria-label="Enviar imagem">
+                    <input type="file" id="fileInput" accept="image/*" hidden />
+                    <div class="dropzone-content" id="dropzoneContent">
+                        <div class="dropzone-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <polyline points="17 8 12 3 7 8"/>
+                                <line x1="12" y1="3" x2="12" y2="15"/>
+                            </svg>
+                        </div>
+                        <strong>Solte ou clique para enviar</strong>
+                        <small>JPG, PNG · Ctrl+V para colar · até 10 MB</small>
+                    </div>
+                    <img id="previewImg" alt="" />
+                </div>
+
+                <div class="action-row">
+                    <button id="analyzeBtn" class="btn-primary" disabled>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="11" cy="11" r="7"/>
+                            <path d="m20 20-3.5-3.5"/>
+                        </svg>
+                        Analisar imagem
+                    </button>
+                    <button id="clearBtn" class="btn-ghost" disabled>Limpar</button>
+                    <div class="status-pill" id="statusPill" hidden></div>
+                </div>
+            </div>
+
+            <div class="panel panel-result" id="resultPanel">
+                <header class="panel-header">
+                    <div>
+                        <h2>2. Resultado</h2>
+                        <p>Imagem analisada e conformidade.</p>
+                    </div>
+                    <button id="downloadBtn" class="btn-ghost" hidden>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="7 10 12 15 17 10"/>
+                            <line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                        Baixar
+                    </button>
+                </header>
+
+                <div class="frame result-frame" id="resultFrame">
+                    <div class="result-empty" id="resultEmpty">
+                        <strong>Aguardando análise</strong>
+                        <small>Envie uma imagem para ver o resultado.</small>
+                    </div>
+                    <img id="annotatedImg" alt="Imagem analisada com anotações" hidden />
+                </div>
+
+                <div class="result-summary" id="resultSummary" hidden>
+                    <div class="summary-head">
+                        <span class="compliance-status" id="complianceStatus">—</span>
+                        <span class="summary-score"><strong id="scoreValue">0</strong> pts</span>
+                        <span class="summary-meta" id="summaryMeta">—</span>
+                    </div>
+                    <ul class="chips" id="checklist"></ul>
+                    <ul class="chips chips-detections" id="detectionList"></ul>
+                </div>
+            </div>
+        </section>
+
+        <section class="history" id="historico">
+            <header>
+                <h2>Histórico desta sessão</h2>
+                <button id="clearHistoryBtn" class="btn-link">Limpar histórico</button>
+            </header>
+            <div class="history-grid" id="historyGrid">
+                <div class="history-empty">Nenhuma análise ainda — o histórico fica salvo apenas no seu navegador.</div>
+            </div>
+        </section>
+
+        <section class="about" id="sobre">
+            <div class="about-card">
+                <h3>Como funciona</h3>
+                <p>Sentinela usa um modelo YOLOv8 treinado localmente para identificar equipamentos de proteção individual em fotos de ambientes operacionais. A inferência roda no seu backend Python — nenhuma imagem sai da sua infraestrutura.</p>
+            </div>
+            <div class="about-card">
+                <h3>Para quem</h3>
+                <p>Técnicos de segurança do trabalho, gestores de obra e auditores que precisam documentar rapidamente a presença de EPIs sem depender de serviços externos.</p>
+            </div>
+            <div class="about-card">
+                <h3>Dica</h3>
+                <p>Ajuste o limiar de confiança no painel de envio para equilibrar sensibilidade e precisão. Fotos com boa iluminação e EPIs visíveis entregam melhores resultados.</p>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <span>Sentinela · build local</span>
+        <span id="apiStatus">conectando ao backend…</span>
+    </footer>
+
+    <noscript>
+        <div style="padding:24px;text-align:center;font-family:system-ui,sans-serif;color:#c0382b">
+            Sentinela requer JavaScript habilitado para funcionar.
+        </div>
+    </noscript>
+
+    <script src="js/app.js?v=4"></script>
+</body>
+</html>
